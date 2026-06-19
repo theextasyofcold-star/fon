@@ -4,39 +4,19 @@ const fetch = require('node-fetch');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Token cache — her 55 dakikada bir yenile
-let cachedToken = null;
-let tokenExpiry = 0;
-
-async function getToken() {
-  if (cachedToken && Date.now() < tokenExpiry) return cachedToken;
-
-  const res = await fetch('https://www.fvt.com.tr/api/auth/token', {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      'Accept': 'application/json',
-      'Referer': 'https://www.fvt.com.tr/'
-    }
-  });
-
-  const data = await res.json();
-  cachedToken = data.token || data.access_token;
-  tokenExpiry = Date.now() + 55 * 60 * 1000; // 55 dakika
-  return cachedToken;
-}
-
-// Ana proxy endpoint
-app.get('/funds', async (req, res) => {
+// /funds/AAK veya /funds/AAK/holdings-history gibi tüm yolları karşılar
+app.get('/funds/*', async (req, res) => {
   try {
-    const token = await getToken();
+    const targetUrl = 'https://fvt.com.tr/api' + req.path;
 
-    const fvtRes = await fetch('https://www.fvt.com.tr/api/funds/', {
+    const fvtRes = await fetch(targetUrl, {
       headers: {
-        'Authorization': `Bearer ${token}`,
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Accept': 'application/json',
-        'Referer': 'https://www.fvt.com.tr/'
-      }
+        'Referer': 'https://fvt.com.tr/',
+        'Origin': 'https://fvt.com.tr'
+      },
+      timeout: 15000
     });
 
     const data = await fvtRes.json();
@@ -47,4 +27,4 @@ app.get('/funds', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => console.log(`Proxy çalışıyor: port ${PORT}`));
+app.listen(PORT, () => console.log('Proxy port ' + PORT));
