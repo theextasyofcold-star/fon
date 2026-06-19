@@ -99,5 +99,71 @@ app.get('/funds/:code/:sub', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+// --- CLOUDFLARE VE TOKEN TEŞHİS ROTASI ---
+app.get('/test-cloudflare', async (req, res) => {
+  const report = {
+    adim1_token_alma: { http_kodu: null, basarili: false, mesaj: "" },
+    adim2_veri_cekme: { http_kodu: null, basarili: false, mesaj: "" },
+    sonuc: ""
+  };
+
+  const BASE_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Referer': 'https://fvt.com.tr/',
+    'Origin': 'https://fvt.com.tr'
+  };
+
+  try {
+    // 1. ADIM: Token sayfasını test et
+    const tokenIstegi = await fetch('https://fvt.com.tr/api/app-token', { headers: BASE_HEADERS });
+    report.adim1_token_alma.http_kodu = tokenIstegi.status;
+    report.adim1_token_alma.basarili = tokenIstegi.ok;
+    
+    let aktifToken = null;
+    if (tokenIstegi.ok) {
+      const tokenJson = await tokenIstegi.json();
+      aktifToken = tokenJson?.data?.token;
+      report.adim1_token_alma.mesaj = aktifToken ? "Harika! Token başarıyla üretildi." : "200 döndü ancak JSON içinde token yok.";
+    } else {
+      const hataMetni = await tokenIstegi.text();
+      report.adim1_token_alma.mesaj = `Reddedildi! Hata: ${hataMetni.substring(0, 150)}...`;
+    }
+
+    // 2. ADIM: Token ile fon verisi sayfasını test et (Örnek: TLY Fonu)
+    const fonHeaders = { ...BASE_HEADERS };
+    if (aktifToken) {
+      fonHeaders['Authorization'] = `Bearer ${aktifToken}`;
+      fonHeaders['App-Token'] = aktifToken;
+    }
+
+    const fonIstegi = await fetch('https://fvt.com.tr/api/funds/TLY', { headers: fonHeaders });
+    report.adim2_veri_cekme.http_kodu = fonIstegi.status;
+    report.adim2_veri_cekme.basarili = fonIstegi.ok;
+    
+    if (fonIstegi.ok) {
+      report.adim2_veri_cekme.mesaj = "Harika! TLY fon verisi başarıyla çekildi.";
+    } else {
+      const hataMetni = await fonIstegi.text();
+      report.adim2_veri_cekme.mesaj = `Reddedildi! Hata: ${hataMetni.substring(0, 150)}...`;
+    }
+
+    // 3. ADIM: Rapor Sonucu Çıkar
+    if (report.adim1_token_alma.http_kodu === 403) {
+      report.sonuc = "❌ CLOUDFLARE WAF ENGELİ: Render sunucusunun IP adresi tamamen yasaklı. Token bile vermiyor.";
+    } else if (report.adim1_token_alma.basarili && report.adim2_veri_cekme.http_kodu === 403) {
+      report.sonuc = "⚠️ KISMİ ENGEL: Sistem token veriyor ancak asıl veri uçnoktası (endpoint) IP adresine kapalı.";
+    } else if (report.adim1_token_alma.basarili && report.adim2_veri_cekme.basarili) {
+      report.sonuc = "✅ BAŞARILI: IP engeli yok, her iki adım da tıkır tıkır çalışıyor.";
+    } else {
+      report.sonuc = "Beklenmeyen bir hata kombinasyonu oluştu.";
+    }
+
+    res.json(report);
+  } catch (e) {
+    res.status(500).json({ error: "Sunucu içi kod hatası: " + e.message });
+  }
+});
 
 app.listen(PORT, () => console.log('🚀 FVT Proxy sunucusu çalışıyor. Port:', PORT));
